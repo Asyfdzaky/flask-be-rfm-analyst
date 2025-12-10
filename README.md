@@ -47,7 +47,7 @@ RFM Backend API adalah sistem backend berbasis Flask yang dirancang untuk melaku
 
 ```bash
 git clone https://github.com/B-Occasion/Customer-Segmentation.git
-cd rfm-backend
+cd Customer-Segmentation
 ```
 
 ### 2️⃣ Setup Virtual Environment
@@ -55,6 +55,9 @@ cd rfm-backend
 ```bash
 # Buat virtual environment
 python -m venv venv
+
+# Jika ada lebih dari satu versi python
+py -3.11 -m venv venv
 
 # Aktifkan virtual environment
 # Windows:
@@ -390,6 +393,36 @@ pip install -r requirements.txt
 ### Error: JWT token invalid
 - Token mungkin expired
 - Login ulang untuk mendapatkan token baru
+
+### Error: Python version incompatible / scikit-learn build failed
+```bash
+pip install -r requirements.txt
+```
+
+Pesan error yang mungkin muncul:
+```bash
+Preparing metadata (pyproject.toml) ... error
+distutils.errors.DistutilsPlatformError: Microsoft Visual C++ 14.0 or greater is required.
+Partial import of sklearn during the build process.
+```
+
+Penyebab:
+-Versi Python yang digunakan lebih baru dari 3.11 (misal 3.14).
+-scikit-learn==1.3.0 tidak menyediakan wheel pre-built untuk versi tersebut, sehingga pip mencoba compile dari source dan membutuhkan compiler C++.
+
+Solusi:
+1. Gunakan Python 3.11.
+2. Buat virtual environment dengan Python 3.11:
+```bash
+py -3.11 -m venv venv
+venv\Scripts\activate   # Windows
+```
+3. Update pip dan install dependencies:
+```bash
+pip install --upgrade pip
+pip install -r requirements.txt
+```
+Dengan langkah ini, scikit-learn akan terinstall dari wheel pre-built, dan error compiler C++ tidak akan muncul.
 
 ## 🤝 Contributing
 

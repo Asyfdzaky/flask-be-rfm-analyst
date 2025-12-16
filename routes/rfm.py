@@ -166,11 +166,6 @@ def get_insight():
             segment_label=data.get("label")
         )
         
-        # If insight is string (JSON string from Gemini), parse it if needed. 
-        # But generate_rfm_insight returns stringified JSON usually.
-        # Let's ensure it returns dict or valid JSON string.
-        # The service returns response.text.replace... which is a string.
-        # We should try to parse it to dict to send clean JSON response.
         import json
         if isinstance(insight, str):
             try:

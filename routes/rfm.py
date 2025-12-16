@@ -2,7 +2,6 @@ print(">>> RFM ROUTES LOADED <<<")
 
 import os
 import pandas as pd
-import joblib
 from flask import Blueprint, jsonify, request
 from middlewares.auth_middleware import auth_required
 from config import get_db_connection

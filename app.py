@@ -8,7 +8,8 @@ import os
 from config import UPLOAD_DIR
 
 app = Flask(__name__)
-CORS(app)
+# Allow all origins for CORS to fix frontend connection issues
+CORS(app, resources={r"/*": {"origins": "*"}})
 
 app.register_blueprint(auth_bp, url_prefix="/api/auth")
 app.register_blueprint(upload_bp, url_prefix="/api")

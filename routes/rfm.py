@@ -138,7 +138,47 @@ def rfm_results(file_id):
 
     return jsonify({
         "message": "success",
+    return jsonify({
+        "message": "success",
         "file_id": file_id,
         "total": len(results),
         "data": results
     }), 200
+
+# =====================================================
+# AI INSIGHTS
+# =====================================================
+from services.gemini_service import generate_rfm_insight
+
+@rfm_bp.post("/insight")
+@auth_required
+def get_insight():
+    data = request.json
+    
+    # Expecting: { cluster, recency, frequency, monetary, total, label }
+    try:
+        insight = generate_rfm_insight(
+            cluster_id=data.get("cluster"),
+            recency=data.get("recency"),
+            frequency=data.get("frequency"),
+            monetary=data.get("monetary"),
+            total_customers=data.get("total"),
+            segment_label=data.get("label")
+        )
+        
+        # If insight is string (JSON string from Gemini), parse it if needed. 
+        # But generate_rfm_insight returns stringified JSON usually.
+        # Let's ensure it returns dict or valid JSON string.
+        # The service returns response.text.replace... which is a string.
+        # We should try to parse it to dict to send clean JSON response.
+        import json
+        if isinstance(insight, str):
+            try:
+                insight = json.loads(insight)
+            except:
+                pass # return as string if parse fails
+                
+        return jsonify({"data": insight}), 200
+        
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500

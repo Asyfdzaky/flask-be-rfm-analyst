@@ -35,12 +35,19 @@ def generate_rfm_insight(cluster_id, recency, frequency, monetary, total_custome
         model = genai.GenerativeModel(model_name)
         
         prompt = f"""
-        As a Marketing Expert, provide a strategy for the customer segment named: "{segment_label}".
+        As a Marketing Expert, analyze this customer segment:
+        - Label: "{segment_label}"
+        - Average Recency: {recency:.1f} days (Time since last purchase)
+        - Average Frequency: {frequency:.1f} transactions
+        - Average Monetary: ${monetary:,.2f}
+        - Total Customers in Segment: {total_customers}
+
+        Based on these specific stats, provide a targeted marketing strategy.
         
         Provide a JSON response with:
-        1. "insight": 1-sentence behavioral analysis.
-        2. "strategy": 2-sentence marketing strategy.
-        3. "action": 1 concrete action item.
+        1. "insight": 1-sentence behavioral analysis explaining WHY they have these specific stats.
+        2. "strategy": 2-sentence marketing strategy tailored to improve these specific metrics.
+        3. "action": 1 concrete action item (e.g., "Send email with subject...").
         
         Output valid JSON only.
         """

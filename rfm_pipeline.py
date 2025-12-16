@@ -8,9 +8,9 @@ import datetime as dt
 # from sklearn.cluster import KMeans, MiniBatchKMeans, DBSCAN, AgglomerativeClustering
 # from sklearn.metrics import silhouette_score, davies_bouldin_score, calinski_harabasz_score
 # import joblib
-import matplotlib
-matplotlib.use('Agg') # Use non-interactive backend
-import matplotlib.pyplot as plt
+# import matplotlib
+# matplotlib.use('Agg') # Use non-interactive backend
+# import matplotlib.pyplot as plt
 
 warnings.filterwarnings("ignore")
 
@@ -204,125 +204,6 @@ def fit_and_save_models(rfm_orig, rfm_scaled_df, k_final=5, output_dir="./output
 # ============================
 # PLOTS & PROFILES
 # ============================
-def create_plots_and_profiles(rfm, output_dir="./output"):
-    """Create RFM boxplots, scatter, pie chart, and cluster profile."""
-    os.makedirs(output_dir, exist_ok=True)
-
-    # RFM boxplots
-    plt.figure(figsize=(15, 5))
-    for i, col in enumerate(["Recency", "Frequency", "Monetary"], 1):
-        plt.subplot(1, 3, i)
-        plt.boxplot(rfm[col].dropna())
-        plt.title(col)
-    plt.tight_layout()
-    plt.savefig(os.path.join(output_dir, "rfm_boxplots.png"))
-    plt.close()
-
-    # Scatter plot
-    plt.figure(figsize=(10, 8))
-    for c in sorted(rfm["Cluster"].unique()):
-        subset = rfm[rfm["Cluster"] == c]
-        plt.scatter(subset["Frequency"], subset["Monetary"], label=f"Cluster {c}", s=20)
-    plt.xlabel("Frequency")
-    plt.ylabel("Monetary")
-    plt.title("Frequency vs Monetary by Cluster")
-    plt.legend()
-    plt.grid(True, linestyle="--", alpha=0.6)
-    plt.savefig(os.path.join(output_dir, "rfm_scatter.png"))
-    plt.close()
-
-    # Pie chart
-    profile = rfm.groupby("Cluster")["CustomerID"].count().rename("Count")
-    profile_ratio = profile / profile.sum() * 100
-
-    plt.figure(figsize=(8, 8))
-    plt.pie(profile_ratio, labels=[f"C{i}" for i in profile_ratio.index], autopct="%1.1f%%")
-    plt.title("Customer Distribution per Cluster")
-    plt.savefig(os.path.join(output_dir, "cluster_pie.png"))
-    plt.close()
-
-    # Export cluster profile
-    cluster_profile = rfm.groupby("Cluster").agg(
-        Recency=("Recency", "mean"),
-        Frequency=("Frequency", "mean"),
-        Monetary=("Monetary", "mean"),
-        Count=("CustomerID", "count")
-    )
-    cluster_profile["Percentage"] = cluster_profile["Count"] / cluster_profile["Count"].sum() * 100
-
-    cluster_profile.to_csv(os.path.join(output_dir, "cluster_profile.csv"))
-
-
 # ============================
-# AUTOMATIC SEGMENT LABELING
+# ARGPARSE and MAIN removed to avoid dependencies
 # ============================
-def label_segments_auto(cluster_profile):
-    """Manual cluster labeling sesuai definisi Google Docs."""
-    
-    mapping = {
-	0: "Pelanggan yang Tidak Aktif/Hilang",
-        1: "Champion/Pelanggan Setia",
-        2: "Potensi Setia/Pelanggan yang Membutuhkan Perhatian",
-        3: "Pelanggan Baru/Berisiko",
-        4: "Pembelanja Besar/Pelanggan Baru Bernilai Tinggi"
-    }
-    
-    cluster_profile = cluster_profile.copy()
-    cluster_profile["Segment"] = cluster_profile.index.map(mapping)
-    return cluster_profile
-
-# ============================
-# ARGPARSE
-# ============================
-def parse_args():
-    parser = argparse.ArgumentParser(description="RFM pipeline for Online Retail (Mode 3)")
-    parser.add_argument("--input", required=True, help="Input Excel/CSV path")
-    parser.add_argument("--output_dir", default="./output", help="Directory to save results")
-    parser.add_argument("--k", type=int, default=5, help="Final K for KMeans (default 5)")
-    parser.add_argument("--kmin", type=int, default=2, help="Min K to evaluate")
-    parser.add_argument("--kmax", type=int, default=10, help="Max K to evaluate")
-    return parser.parse_args()
-
-
-# ============================
-# MAIN
-# ============================
-def main():
-    args = parse_args()
-    os.makedirs(args.output_dir, exist_ok=True)
-
-    print("Loading data...")
-    df = load_data(args.input)
-    print(f"Original rows: {len(df):,}")
-
-    print("Cleaning...")
-    df = basic_cleaning(df)
-    print(f"After cleaning rows: {len(df):,}")
-
-    print("Computing RFM...")
-    rfm = compute_rfm(df)
-
-    print("Transforming data...")
-    rfm_proc, rfm_log, rfm_scaled_df, scaler = cap_and_log_transform(rfm)
-
-    print("Evaluating K...")
-    eval_res = evaluate_k_options(rfm_scaled_df.values, args.kmin, args.kmax, args.output_dir)
-    print("Suggested K by silhouette:", eval_res["best_k_by_silhouette"])
-
-    print(f"Fitting final models (k={args.k})...")
-    rfm_clustered, metrics = fit_and_save_models(rfm, rfm_scaled_df, args.k, args.output_dir)
-    print("Metrics:", metrics)
-
-    print("Creating plots...")
-    create_plots_and_profiles(rfm_clustered, args.output_dir)
-
-    print("Labeling segments...")
-    profile = pd.read_csv(os.path.join(args.output_dir, "cluster_profile.csv"), index_col=0)
-    labeled = label_segments_auto(profile)
-    labeled.to_csv(os.path.join(args.output_dir, "cluster_profile_labeled.csv"))
-
-    print("Pipeline complete. Results saved to:", args.output_dir)
-
-
-if __name__ == "__main__":
-    main()

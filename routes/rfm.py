@@ -16,10 +16,10 @@ rfm_bp = Blueprint("rfm", __name__)
 MODEL_PATH = os.getenv("MODEL_PATH")
 UPLOAD_DIR = os.getenv("UPLOAD_DIR")
 
-if not MODEL_PATH or not os.path.exists(MODEL_PATH):
-    raise RuntimeError("MODEL_PATH not set or model file not found")
-
-MODEL = joblib.load(MODEL_PATH)   # ✅ LOAD SEKALI
+# Init Gradio Client
+from gradio_client import Client
+# Menggunakan API Hugging Face Anda
+HF_CLIENT = Client("jekoo/rfm-1")
 
 MAX_ROWS = 100_000  # safety limit
 
@@ -32,7 +32,7 @@ def process_rfm(file_id):
     conn = get_db_connection()
     cur = conn.cursor(dictionary=True)
 
-    # 1️⃣ Validate ownership
+    # 1. Validate ownership
     cur.execute("""
         SELECT filename FROM upload_history
         WHERE id=%s AND user_id=%s
@@ -43,10 +43,11 @@ def process_rfm(file_id):
         return jsonify({"message": "file not found or unauthorized"}), 404
 
     filepath = os.path.join(UPLOAD_DIR, history["filename"])
+
     if not os.path.exists(filepath):
         return jsonify({"error": "File missing on server"}), 404
 
-    # 2️⃣ Load file (safe & limited)
+    # 2. Load file (safe & limited)
     try:
         if filepath.endswith(".csv"):
             df = pd.read_csv(
@@ -65,13 +66,13 @@ def process_rfm(file_id):
     except Exception as e:
         return jsonify({"error": f"Failed to read file: {str(e)}"}), 400
 
-    # 3️⃣ Guardrail: limit size
+    # 3. Guardrail: limit size
     if len(df) > MAX_ROWS:
         return jsonify({
             "error": f"File too large ({len(df)} rows). Max allowed is {MAX_ROWS}"
         }), 413
 
-    # 4️⃣ Pipeline
+    # 4. Pipeline
     try:
         df = basic_cleaning(df)
         rfm_df = compute_rfm(df)
@@ -79,15 +80,29 @@ def process_rfm(file_id):
     except Exception as e:
         return jsonify({"error": f"RFM pipeline failed: {str(e)}"}), 500
 
-    # 5️⃣ Predict
+    # 5. Predict via Hugging Face Gradio API
     try:
-        clusters = MODEL.predict(rfm_scaled_df)
+        clusters = []
+        # Prediksi satu per satu atau batch kecil (Gradio API call)
+        # Catatan: Memanggil API dalam loop sangat lambat. 
+        # Idealnya update API HF untuk terima batch. 
+        # Tapi untuk sekarang kita loop saja.
+        
+        for _, row in rfm_log.iterrows():
+            result = HF_CLIENT.predict(
+                R_log=row['R_log'], 
+                F_log=row['F_log'], 
+                M_log=row['M_log'], 
+                api_name="/predict"
+            )
+            clusters.append(result)
+
     except Exception as e:
         return jsonify({"error": f"Prediction failed: {str(e)}"}), 500
 
     rfm_proc["cluster"] = clusters
 
-    # 6️⃣ Batch insert (FAST)
+    # 6. Batch insert (FAST)
     insert_data = []
     for idx, row in rfm_proc.iterrows():
         cust = row.get("CustomerID", idx)

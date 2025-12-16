@@ -30,7 +30,7 @@ MAX_ROWS = 100_000  # safety limit
 @auth_required
 def process_rfm(file_id):
     conn = get_db_connection()
-    cur = conn.cursor(dictionary=True)
+    cur = conn.cursor()
 
     # 1. Validate ownership
     cur.execute("""
@@ -149,7 +149,7 @@ def process_rfm(file_id):
 @auth_required
 def rfm_results(file_id):
     conn = get_db_connection()
-    cur = conn.cursor(dictionary=True)
+    cur = conn.cursor()
 
     cur.execute("""
         SELECT id FROM upload_history

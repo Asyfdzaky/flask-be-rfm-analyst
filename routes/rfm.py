@@ -27,7 +27,7 @@ def get_hf_client():
         HF_CLIENT = Client("jekoo/rfm-1")
     return HF_CLIENT
 
-MAX_ROWS = 100_000  # safety limit
+MAX_ROWS = 200_000  # safety limit
 
 # =====================================================
 # RFM PROCESS

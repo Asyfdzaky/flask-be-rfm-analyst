@@ -33,12 +33,26 @@ def load_data(path):
 def basic_cleaning(df):
     """Drop missing customer IDs and remove non-positive quantity/unitprice."""
     df = df.copy()
+    # Convert to numeric, coercing non-numeric values to NaN
+    df["Quantity"] = pd.to_numeric(df["Quantity"], errors='coerce')
+    df["UnitPrice"] = pd.to_numeric(df["UnitPrice"], errors='coerce')
+
+    # Drop rows where Quantity or UnitPrice is NaN (failed conversion)
+    df.dropna(subset=["Quantity", "UnitPrice"], inplace=True)
+
     df.dropna(subset=["CustomerID"], inplace=True)
     df = df[df["Quantity"] > 0]
     df = df[df["UnitPrice"] > 0]
 
     # ensure InvoiceDate is datetime
-    df["InvoiceDate"] = pd.to_datetime(df["InvoiceDate"])
+    # Handle odd formats like "01/12/2010 08.45" where dot is used for time
+    if df["InvoiceDate"].dtype == 'object':
+         df["InvoiceDate"] = df["InvoiceDate"].astype(str).str.replace(".", ":", regex=False)
+
+    df["InvoiceDate"] = pd.to_datetime(df["InvoiceDate"], dayfirst=True, errors='coerce')
+    
+    # Drop rows where InvoiceDate failed to parse
+    df.dropna(subset=["InvoiceDate"], inplace=True)
 
     # compute Amount
     df["Amount"] = df["Quantity"] * df["UnitPrice"]

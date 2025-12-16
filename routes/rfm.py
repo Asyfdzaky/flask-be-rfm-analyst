@@ -16,7 +16,7 @@ UPLOAD_DIR = os.getenv("UPLOAD_DIR")
 @auth_required
 def process_rfm(file_id):
     conn = get_db_connection()
-    cur = conn.cursor(dictionary=True)
+    cur = conn.cursor()
 
     # 1. Check file belongs to user
     cur.execute("""
@@ -34,7 +34,12 @@ def process_rfm(file_id):
     # 2. Load file (CSV or Excel)
     try:
         if filepath.endswith(".csv"):
-            df = pd.read_csv(filepath)
+            # Use python engine with sep=None to auto-detect delimiter
+            try:
+                df = pd.read_csv(filepath, sep=None, engine='python', encoding='utf-8')
+            except UnicodeDecodeError:
+                print("UTF-8 failed, trying latin1")
+                df = pd.read_csv(filepath, sep=None, engine='python', encoding='latin1')
         else:
             df = pd.read_excel(filepath)
     except Exception as e:
@@ -114,7 +119,7 @@ def process_rfm(file_id):
 @auth_required
 def rfm_results(file_id):
     conn = get_db_connection()
-    cur = conn.cursor(dictionary=True)
+    cur = conn.cursor()
 
     # validate ownership
     cur.execute("""
@@ -142,3 +147,37 @@ def rfm_results(file_id):
         "total": len(results),
         "data": results
     })
+
+
+# ============================
+# GEMINI AI INSIGHTS
+# ============================
+@rfm_bp.post("/insight")
+@auth_required
+def get_insights():
+    try:
+        data = request.json
+        cluster_id = data.get('cluster')
+        recency = data.get('recency')
+        frequency = data.get('frequency')
+        monetary = data.get('monetary')
+        total = data.get('total', 0)
+        segment_label = data.get('label', f"Cluster {cluster_id}")
+        
+        from services.gemini_service import generate_rfm_insight
+        
+        # Call Gemini Service
+        result = generate_rfm_insight(cluster_id, recency, frequency, monetary, total, segment_label)
+        
+        # Parse if result is stringified JSON
+        import json
+        if isinstance(result, str):
+            try:
+                result = json.loads(result)
+            except:
+                pass 
+                
+        return jsonify({"data": result}), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500

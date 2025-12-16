@@ -31,11 +31,12 @@ def upload_file():
     cur.execute("""
         INSERT INTO upload_history (user_id, filename)
         VALUES (%s, %s)
+        RETURNING id
     """, (request.user["id"], filename))
 
+    upload_id = cur.fetchone()['id']
     conn.commit()
 
-    upload_id = cur.lastrowid
     cur.close()
     conn.close()
 
@@ -49,7 +50,7 @@ def upload_file():
 @auth_required
 def upload_history():
     conn = get_db_connection()
-    cur = conn.cursor(dictionary=True)
+    cur = conn.cursor()
 
     cur.execute("""
         SELECT id, filename, uploaded_at

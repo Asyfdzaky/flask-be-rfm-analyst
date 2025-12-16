@@ -26,9 +26,10 @@ def register():
         cur.execute("""
             INSERT INTO users (username, email, password_hash)
             VALUES (%s, %s, %s)
+            RETURNING id
         """, (username, email, pw_hash))
+        user_id = cur.fetchone()['id']
         conn.commit()
-        user_id = cur.lastrowid
     except Exception as e:
         conn.rollback()
         return jsonify({"message": "username or email already exists", "error": str(e)}), 400
@@ -59,7 +60,7 @@ def login():
         return jsonify({"message": "identifier and password required"}), 400
 
     conn = get_db_connection()
-    cur = conn.cursor(dictionary=True)
+    cur = conn.cursor()
 
     # Cek apakah identifier cocok ke username atau email
     cur.execute("""

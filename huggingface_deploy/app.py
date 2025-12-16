@@ -31,8 +31,9 @@ def predict(data: RFMInput):
     
     try:
         # Prepare Data
+        # Model expects: ['R_log_sc', 'F_log_sc', 'M_log_sc']
         input_df = pd.DataFrame([[data.R_log, data.F_log, data.M_log]], 
-                                columns=["R_log", "F_log", "M_log"])
+                                columns=["R_log_sc", "F_log_sc", "M_log_sc"])
         
         # Predict
         cluster = model.predict(input_df)[0]

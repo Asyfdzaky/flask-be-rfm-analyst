@@ -89,11 +89,14 @@ def process_rfm(file_id):
         if HF_TOKEN:
              headers["Authorization"] = f"Bearer {HF_TOKEN}"
 
-        for _, row in rfm_log.iterrows():
+        # Use rfm_scaled_df because the model expects scaled features
+        # And we map them to the input keys that HF app expects (R_log, F_log, M_log)
+        # Note: HF App MUST rename them to R_log_sc, etc internally
+        for idx, row in rfm_scaled_df.iterrows():
             payload = {
-                "R_log": row['R_log'],
-                "F_log": row['F_log'],
-                "M_log": row['M_log']
+                "R_log": row['R_log_sc'],
+                "F_log": row['F_log_sc'],
+                "M_log": row['M_log_sc']
             }
             
             response = requests.post(HF_API_URL, json=payload, headers=headers)

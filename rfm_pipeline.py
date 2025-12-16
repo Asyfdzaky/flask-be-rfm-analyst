@@ -4,10 +4,12 @@ import warnings
 import pandas as pd
 import numpy as np
 import datetime as dt
-from sklearn.preprocessing import StandardScaler
-from sklearn.cluster import KMeans, MiniBatchKMeans, DBSCAN, AgglomerativeClustering
-from sklearn.metrics import silhouette_score, davies_bouldin_score, calinski_harabasz_score
-import joblib
+# from sklearn.preprocessing import StandardScaler
+# from sklearn.cluster import KMeans, MiniBatchKMeans, DBSCAN, AgglomerativeClustering
+# from sklearn.metrics import silhouette_score, davies_bouldin_score, calinski_harabasz_score
+# import joblib
+import matplotlib
+matplotlib.use('Agg') # Use non-interactive backend
 import matplotlib.pyplot as plt
 
 warnings.filterwarnings("ignore")
@@ -81,8 +83,11 @@ def compute_rfm(df, reference_date=None):
 # ============================
 # CAP OUTLIERS + LOG TRANSFORM
 # ============================
+# ============================
+# CAP OUTLIERS + LOG TRANSFORM
+# ============================
 def cap_and_log_transform(rfm):
-    """Cap extreme values (99th percentile), log-transform, then scale."""
+    """Cap extreme values (99th percentile), log-transform, then scale manually."""
     rfm_proc = rfm.copy()
 
     Q99_F = rfm_proc["Frequency"].quantile(0.99)
@@ -98,16 +103,21 @@ def cap_and_log_transform(rfm):
         "M_log": np.log(rfm_proc["Monetary_Capped"] + 1)
     })
 
-    scaler = StandardScaler()
-    rfm_scaled = scaler.fit_transform(rfm_log)
+    # Manual Standard Scaling to avoid sklearn dependency
+    # (x - mean) / std
+    rfm_scaled_dict = {}
+    for col in ["R_log", "F_log", "M_log"]:
+        mean = rfm_log[col].mean()
+        std = rfm_log[col].std(ddof=0) # Population std or sample std? sklearn uses biased=False by default? No, StandardScaler uses with_mean=True, with_std=True. It uses biased estimator (ddof=0) for std? 
+        # sklearn StandardScaler uses np.std(x, axis=0) which defaults to ddof=0. 
+        if std == 0:
+            rfm_scaled_dict[f"{col}_sc"] = rfm_log[col] - mean
+        else:
+            rfm_scaled_dict[f"{col}_sc"] = (rfm_log[col] - mean) / std
 
-    rfm_scaled_df = pd.DataFrame(
-        rfm_scaled,
-        columns=["R_log_sc", "F_log_sc", "M_log_sc"],
-        index=rfm_proc.index
-    )
+    rfm_scaled_df = pd.DataFrame(rfm_scaled_dict, index=rfm_proc.index)
 
-    return rfm_proc, rfm_log, rfm_scaled_df, scaler
+    return rfm_proc, rfm_log, rfm_scaled_df, None
 
 
 # ============================

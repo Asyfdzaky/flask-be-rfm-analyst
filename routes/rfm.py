@@ -1,11 +1,11 @@
 print(">>> RFM ROUTES LOADED <<<")
 
 import os
-import pandas as pd
+# import pandas as pd # Removed: Processing moved to HF
 from flask import Blueprint, jsonify, request
 from middlewares.auth_middleware import auth_required
 from config import get_db_connection
-from rfm_pipeline import basic_cleaning, compute_rfm, cap_and_log_transform
+# from rfm_pipeline import basic_cleaning, compute_rfm, cap_and_log_transform # Removed: Processing moved to HF
 
 rfm_bp = Blueprint("rfm", __name__)
 
@@ -46,93 +46,46 @@ def process_rfm(file_id):
     if not os.path.exists(filepath):
         return jsonify({"error": "File missing on server"}), 404
 
-    # 2. Load file (safe & limited)
+    # 2. Forward File to Hugging Face
+    HF_API_URL = "https://jekoo-rfm.hf.space/process_file"  # New Endpoint
+    HF_TOKEN = os.getenv("HF_TOKEN")
+    
     try:
-        if filepath.endswith(".csv"):
-            df = pd.read_csv(
-                filepath,
-                sep=None,
-                engine="python",
-                encoding="utf-8",
-                usecols=lambda c: c.lower() in {
-                    "customerid", "invoicedate", "invoiceno", "quantity", "unitprice"
-                }
-            )
-        else:
-            df = pd.read_excel(filepath)
-    except UnicodeDecodeError:
-        df = pd.read_csv(filepath, sep=None, engine="python", encoding="latin1")
-    except Exception as e:
-        return jsonify({"error": f"Failed to read file: {str(e)}"}), 400
-
-    # 3. Guardrail: limit size
-    if len(df) > MAX_ROWS:
-        return jsonify({
-            "error": f"File too large ({len(df)} rows). Max allowed is {MAX_ROWS}"
-        }), 413
-
-    # 4. Pipeline
-    try:
-        df = basic_cleaning(df)
-        rfm_df = compute_rfm(df)
-        rfm_proc, rfm_log, rfm_scaled_df, _ = cap_and_log_transform(rfm_df)
-    except Exception as e:
-        return jsonify({"error": f"RFM pipeline failed: {str(e)}"}), 500
-
-    # 5. Predict via Hugging Face FastAPI API
-    try:
-        clusters = []
-        
-        headers = {
-            "Content-Type": "application/json"
-        }
+        # Prepare headers and files
+        headers = {}
         if HF_TOKEN:
              headers["Authorization"] = f"Bearer {HF_TOKEN}"
+        
+        # Open file and stream it
+        with open(filepath, 'rb') as f:
+            files = {'file': (os.path.basename(filepath), f)}
+            
+            print("Uploading file to Hugging Face for processing...")
+            response = requests.post(HF_API_URL, files=files, headers=headers, timeout=120) # 120s timeout for large files
 
-        # Use rfm_scaled_df because the model expects scaled features
-        # And we map them to the input keys that HF app expects (R_log, F_log, M_log)
-        # Note: HF App MUST rename them to R_log_sc, etc internally
-        for idx, row in rfm_scaled_df.iterrows():
-            payload = {
-                "R_log": row['R_log_sc'],
-                "F_log": row['F_log_sc'],
-                "M_log": row['M_log_sc']
-            }
-            
-            response = requests.post(HF_API_URL, json=payload, headers=headers)
-            
-            if response.status_code == 200:
-                result = response.json()
-                clusters.append(result["cluster"])
-            else:
-                 raise Exception(f"HF API Error {response.status_code}: {response.text}")
+        if response.status_code == 200:
+            result_data = response.json().get("results", [])
+        else:
+             raise Exception(f"HF API Error {response.status_code}: {response.text}")
 
     except Exception as e:
-        print(f"ERROR calling HF API: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        return jsonify({"error": f"Prediction failed: {str(e)}"}), 500
+        print(f"HF Processing Failed: {e}")
+        return jsonify({"error": f"Processing failed at HF: {str(e)}"}), 500
 
-    rfm_proc["cluster"] = clusters
-
-    # 6. Batch insert (FAST)
+    # 3. Batch insert to DB
     insert_data = []
-    for idx, row in rfm_proc.iterrows():
-        cust = row.get("CustomerID", idx)
-        cust_str = (
-            str(int(cust))
-            if pd.notna(cust) and str(cust).replace(".", "").isdigit()
-            else str(cust)
-        )
-
+    clusters_set = set()
+    
+    for row in result_data:
         insert_data.append((
             file_id,
-            cust_str,
-            int(row["Recency"]),
-            int(row["Frequency"]),
-            float(row["Monetary"]),
-            int(row["cluster"])
+            row["CustomerID"],
+            row["Recency"],
+            row["Frequency"],
+            row["Monetary"],
+            row["Cluster"]
         ))
+        clusters_set.add(row["Cluster"])
 
     try:
         cur.executemany("""
@@ -151,7 +104,7 @@ def process_rfm(file_id):
     return jsonify({
         "message": "RFM processing complete",
         "total_customers": len(insert_data),
-        "clusters": int(rfm_proc["cluster"].nunique())
+        "clusters": len(clusters_set)
     }), 200
 
 

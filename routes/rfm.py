@@ -15,17 +15,10 @@ rfm_bp = Blueprint("rfm", __name__)
 MODEL_PATH = os.getenv("MODEL_PATH")
 UPLOAD_DIR = os.getenv("UPLOAD_DIR")
 
-# Init Gradio Client
-# We initialize it lazily inside the function to prevent app crash on startup
-# HF_CLIENT = Client("jekoo/rfm-1") 
-HF_CLIENT = None
-
-def get_hf_client():
-    global HF_CLIENT
-    if HF_CLIENT is None:
-        from gradio_client import Client
-        HF_CLIENT = Client("jekoo/rfm-1")
-    return HF_CLIENT
+# Init HF API
+import requests
+HF_API_URL = "https://jekoo-rfm.hf.space/predict"  # Adjust if URL differs
+HF_TOKEN = os.getenv("HF_TOKEN")
 
 MAX_ROWS = 200_000  # safety limit
 
@@ -86,25 +79,35 @@ def process_rfm(file_id):
     except Exception as e:
         return jsonify({"error": f"RFM pipeline failed: {str(e)}"}), 500
 
-    # 5. Predict via Hugging Face Gradio API
+    # 5. Predict via Hugging Face FastAPI API
     try:
         clusters = []
-        # Prediksi satu per satu atau batch kecil (Gradio API call)
-        # Catatan: Memanggil API dalam loop sangat lambat. 
-        # Idealnya update API HF untuk terima batch. 
-        # Tapi untuk sekarang kita loop saja.
         
+        headers = {
+            "Content-Type": "application/json"
+        }
+        if HF_TOKEN:
+             headers["Authorization"] = f"Bearer {HF_TOKEN}"
+
         for _, row in rfm_log.iterrows():
-            client = get_hf_client()
-            result = client.predict(
-                R_log=row['R_log'], 
-                F_log=row['F_log'], 
-                M_log=row['M_log'], 
-                api_name="/predict"
-            )
-            clusters.append(result)
+            payload = {
+                "R_log": row['R_log'],
+                "F_log": row['F_log'],
+                "M_log": row['M_log']
+            }
+            
+            response = requests.post(HF_API_URL, json=payload, headers=headers)
+            
+            if response.status_code == 200:
+                result = response.json()
+                clusters.append(result["cluster"])
+            else:
+                 raise Exception(f"HF API Error {response.status_code}: {response.text}")
 
     except Exception as e:
+        print(f"ERROR calling HF API: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return jsonify({"error": f"Prediction failed: {str(e)}"}), 500
 
     rfm_proc["cluster"] = clusters

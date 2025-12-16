@@ -16,9 +16,16 @@ MODEL_PATH = os.getenv("MODEL_PATH")
 UPLOAD_DIR = os.getenv("UPLOAD_DIR")
 
 # Init Gradio Client
-from gradio_client import Client
-# Menggunakan API Hugging Face Anda
-HF_CLIENT = Client("jekoo/rfm-1")
+# We initialize it lazily inside the function to prevent app crash on startup
+# HF_CLIENT = Client("jekoo/rfm-1") 
+HF_CLIENT = None
+
+def get_hf_client():
+    global HF_CLIENT
+    if HF_CLIENT is None:
+        from gradio_client import Client
+        HF_CLIENT = Client("jekoo/rfm-1")
+    return HF_CLIENT
 
 MAX_ROWS = 100_000  # safety limit
 
@@ -88,7 +95,8 @@ def process_rfm(file_id):
         # Tapi untuk sekarang kita loop saja.
         
         for _, row in rfm_log.iterrows():
-            result = HF_CLIENT.predict(
+            client = get_hf_client()
+            result = client.predict(
                 R_log=row['R_log'], 
                 F_log=row['F_log'], 
                 M_log=row['M_log'], 

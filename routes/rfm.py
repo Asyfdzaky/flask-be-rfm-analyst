@@ -1,4 +1,5 @@
 print(">>> RFM ROUTES LOADED <<<")
+
 import os
 import pandas as pd
 import joblib
@@ -9,92 +10,94 @@ from rfm_pipeline import basic_cleaning, compute_rfm, cap_and_log_transform
 
 rfm_bp = Blueprint("rfm", __name__)
 
+# =====================================================
+# LOAD ENV & MODEL SEKALI (GLOBAL)
+# =====================================================
 MODEL_PATH = os.getenv("MODEL_PATH")
 UPLOAD_DIR = os.getenv("UPLOAD_DIR")
 
+if not MODEL_PATH or not os.path.exists(MODEL_PATH):
+    raise RuntimeError("MODEL_PATH not set or model file not found")
+
+MODEL = joblib.load(MODEL_PATH)   # ✅ LOAD SEKALI
+
+MAX_ROWS = 100_000  # safety limit
+
+# =====================================================
+# RFM PROCESS
+# =====================================================
 @rfm_bp.post("/process/<int:file_id>")
 @auth_required
 def process_rfm(file_id):
     conn = get_db_connection()
-    cur = conn.cursor()
+    cur = conn.cursor(dictionary=True)
 
-    # 1. Check file belongs to user
+    # 1️⃣ Validate ownership
     cur.execute("""
         SELECT filename FROM upload_history
         WHERE id=%s AND user_id=%s
     """, (file_id, request.user["id"]))
 
     history = cur.fetchone()
-
     if not history:
         return jsonify({"message": "file not found or unauthorized"}), 404
 
     filepath = os.path.join(UPLOAD_DIR, history["filename"])
+    if not os.path.exists(filepath):
+        return jsonify({"error": "File missing on server"}), 404
 
-    # 2. Load file (CSV or Excel)
+    # 2️⃣ Load file (safe & limited)
     try:
         if filepath.endswith(".csv"):
-            # Use python engine with sep=None to auto-detect delimiter
-            try:
-                df = pd.read_csv(filepath, sep=None, engine='python', encoding='utf-8')
-            except UnicodeDecodeError:
-                print("UTF-8 failed, trying latin1")
-                df = pd.read_csv(filepath, sep=None, engine='python', encoding='latin1')
+            df = pd.read_csv(
+                filepath,
+                sep=None,
+                engine="python",
+                encoding="utf-8",
+                usecols=lambda c: c.lower() in {
+                    "customerid", "invoicedate", "invoiceno", "quantity", "unitprice"
+                }
+            )
         else:
             df = pd.read_excel(filepath)
+    except UnicodeDecodeError:
+        df = pd.read_csv(filepath, sep=None, engine="python", encoding="latin1")
     except Exception as e:
         return jsonify({"error": f"Failed to read file: {str(e)}"}), 400
 
-    # 3. Basic cleaning (drop null CustomerID, numeric fix, etc.)
-    df = basic_cleaning(df)
+    # 3️⃣ Guardrail: limit size
+    if len(df) > MAX_ROWS:
+        return jsonify({
+            "error": f"File too large ({len(df)} rows). Max allowed is {MAX_ROWS}"
+        }), 413
 
-    # 4. Compute RFM
-    rfm_df = compute_rfm(df)
-
-    # 5. Transform → cap outliers, log-transform, scale
-    rfm_proc, rfm_log, rfm_scaled_df, scaler = cap_and_log_transform(rfm_df)
-
-    # Ensure required columns exist
-    required_cols = ["R_log", "F_log", "M_log"]
-    for col in required_cols:
-        if col not in rfm_log.columns:
-            return jsonify({"error": f"Missing column: {col}"}), 400
-
-    # 6. Load trained model
+    # 4️⃣ Pipeline
     try:
-        model = joblib.load(MODEL_PATH)
+        df = basic_cleaning(df)
+        rfm_df = compute_rfm(df)
+        rfm_proc, rfm_log, rfm_scaled_df, _ = cap_and_log_transform(rfm_df)
     except Exception as e:
-        return jsonify({"error": f"Model load error: {str(e)}"}), 500
+        return jsonify({"error": f"RFM pipeline failed: {str(e)}"}), 500
 
-    # 7. Model prediction
+    # 5️⃣ Predict
     try:
-        clusters = model.predict(rfm_scaled_df)
+        clusters = MODEL.predict(rfm_scaled_df)
     except Exception as e:
-        return jsonify({"error": f"Prediction failed: {str(e)}"}), 400
+        return jsonify({"error": f"Prediction failed: {str(e)}"}), 500
 
     rfm_proc["cluster"] = clusters
 
-    # 8. Save results to DB
-    insert_count = 0
-    for _, row in rfm_proc.iterrows():
-        # Ambil CustomerID dari kolom. Jika tidak ada, fallback ke index (defensive).
-        if "CustomerID" in rfm_proc.columns:
-            cust = row["CustomerID"]
-        else:
-            # defensive fallback (jarang terjadi)
-            cust = _
+    # 6️⃣ Batch insert (FAST)
+    insert_data = []
+    for idx, row in rfm_proc.iterrows():
+        cust = row.get("CustomerID", idx)
+        cust_str = (
+            str(int(cust))
+            if pd.notna(cust) and str(cust).replace(".", "").isdigit()
+            else str(cust)
+        )
 
-        # Cust bisa berupa float (hasil parsing). Buat string yang bersih:
-        try:
-            # bila integer-like, simpan tanpa .0
-            cust_str = str(int(cust)) if (not pd.isna(cust) and float(cust).is_integer()) else str(cust)
-        except Exception:
-            cust_str = str(cust)
-
-        cur.execute("""
-            INSERT INTO rfm_results (file_id, customer_id, recency, frequency, monetary, cluster)
-            VALUES (%s, %s, %s, %s, %s, %s)
-        """, (
+        insert_data.append((
             file_id,
             cust_str,
             int(row["Recency"]),
@@ -102,26 +105,37 @@ def process_rfm(file_id):
             float(row["Monetary"]),
             int(row["cluster"])
         ))
-        insert_count += 1
 
-    conn.commit()
-    cur.close()
-    conn.close()
+    try:
+        cur.executemany("""
+            INSERT INTO rfm_results
+            (file_id, customer_id, recency, frequency, monetary, cluster)
+            VALUES (%s, %s, %s, %s, %s, %s)
+        """, insert_data)
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        return jsonify({"error": f"DB insert failed: {str(e)}"}), 500
+    finally:
+        cur.close()
+        conn.close()
 
     return jsonify({
         "message": "RFM processing complete",
-        "total_customers": insert_count,
+        "total_customers": len(insert_data),
         "clusters": int(rfm_proc["cluster"].nunique())
     }), 200
 
 
+# =====================================================
+# GET RESULTS
+# =====================================================
 @rfm_bp.get("/results/<int:file_id>")
 @auth_required
 def rfm_results(file_id):
     conn = get_db_connection()
-    cur = conn.cursor()
+    cur = conn.cursor(dictionary=True)
 
-    # validate ownership
     cur.execute("""
         SELECT id FROM upload_history
         WHERE id=%s AND user_id=%s
@@ -146,38 +160,4 @@ def rfm_results(file_id):
         "file_id": file_id,
         "total": len(results),
         "data": results
-    })
-
-
-# ============================
-# GEMINI AI INSIGHTS
-# ============================
-@rfm_bp.post("/insight")
-@auth_required
-def get_insights():
-    try:
-        data = request.json
-        cluster_id = data.get('cluster')
-        recency = data.get('recency')
-        frequency = data.get('frequency')
-        monetary = data.get('monetary')
-        total = data.get('total', 0)
-        segment_label = data.get('label', f"Cluster {cluster_id}")
-        
-        from services.gemini_service import generate_rfm_insight
-        
-        # Call Gemini Service
-        result = generate_rfm_insight(cluster_id, recency, frequency, monetary, total, segment_label)
-        
-        # Parse if result is stringified JSON
-        import json
-        if isinstance(result, str):
-            try:
-                result = json.loads(result)
-            except:
-                pass 
-                
-        return jsonify({"data": result}), 200
-
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    }), 200

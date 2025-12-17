@@ -135,9 +135,6 @@ def rfm_results(file_id):
 
     cur.close()
     conn.close()
-
-    return jsonify({
-        "message": "success",
     return jsonify({
         "message": "success",
         "file_id": file_id,
@@ -145,35 +142,35 @@ def rfm_results(file_id):
         "data": results
     }), 200
 
-# =====================================================
-# AI INSIGHTS
-# =====================================================
-from services.gemini_service import generate_rfm_insight
+# # =====================================================
+# # AI INSIGHTS
+# # =====================================================
+# from services.gemini_service import generate_rfm_insight
 
-@rfm_bp.post("/insight")
-@auth_required
-def get_insight():
-    data = request.json
+# @rfm_bp.post("/insight")
+# @auth_required
+# def get_insight():
+#     data = request.json
     
-    # Expecting: { cluster, recency, frequency, monetary, total, label }
-    try:
-        insight = generate_rfm_insight(
-            cluster_id=data.get("cluster"),
-            recency=data.get("recency"),
-            frequency=data.get("frequency"),
-            monetary=data.get("monetary"),
-            total_customers=data.get("total"),
-            segment_label=data.get("label")
-        )
+#     # Expecting: { cluster, recency, frequency, monetary, total, label }
+#     try:
+#         insight = generate_rfm_insight(
+#             cluster_id=data.get("cluster"),
+#             recency=data.get("recency"),
+#             frequency=data.get("frequency"),
+#             monetary=data.get("monetary"),
+#             total_customers=data.get("total"),
+#             segment_label=data.get("label")
+#         )
         
-        import json
-        if isinstance(insight, str):
-            try:
-                insight = json.loads(insight)
-            except:
-                pass # return as string if parse fails
+#         import json
+#         if isinstance(insight, str):
+#             try:
+#                 insight = json.loads(insight)
+#             except:
+#                 pass # return as string if parse fails
                 
-        return jsonify({"data": insight}), 200
+#         return jsonify({"data": insight}), 200
         
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+#     except Exception as e:
+#         return jsonify({"error": str(e)}), 500
